@@ -21,7 +21,36 @@ import argparse
 import os
 from pathlib import Path
 
-from dotenv import dotenv_values
+try:
+    from dotenv import dotenv_values
+except ModuleNotFoundError:
+    # python-dotenv is installed into the lab's virtual environment, but this
+    # preflight check is meant to run BEFORE 'pip install -r requirements.txt'
+    # (and possibly outside the venv). Fall back to a small stdlib parser so the
+    # check still works on a clean interpreter.
+    def dotenv_values(path):
+        """Minimal .env reader: KEY=VALUE, honoring quotes and # comments."""
+        values = {}
+        with open(path, "r", encoding="utf-8-sig") as env_file:
+            for raw_line in env_file:
+                line = raw_line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if line.startswith("export "):
+                    line = line[len("export "):].lstrip()
+                key, separator, value = line.partition("=")
+                if not separator:
+                    # python-dotenv records a bare key with no "=" as None.
+                    values[line] = None
+                    continue
+                key = key.strip()
+                value = value.strip()
+                if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
+                    value = value[1:-1]
+                else:
+                    value = value.split(" #")[0].strip()
+                values[key] = value
+        return values
 
 # Which .env keys each task needs to run on its own.
 TASK_REQUIREMENTS = {

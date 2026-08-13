@@ -31,7 +31,12 @@ except ModuleNotFoundError:
     def dotenv_values(path):
         """Minimal .env reader: KEY=VALUE, honoring quotes and # comments."""
         values = {}
-        with open(path, "r", encoding="utf-8-sig") as env_file:
+        try:
+            # utf-8-sig transparently strips a UTF-8 BOM if the editor added one.
+            env_file = open(path, "r", encoding="utf-8-sig")
+        except OSError:
+            return values
+        with env_file:
             for raw_line in env_file:
                 line = raw_line.strip()
                 if not line or line.startswith("#"):
@@ -116,7 +121,14 @@ def load_values(env_path):
     """Merge real environment variables over .env file values (env wins)."""
     values = {}
     if env_path.exists():
-        values.update({k: v for k, v in dotenv_values(env_path).items() if v is not None})
+        # A .env saved by some Windows editors starts with a UTF-8 BOM, which
+        # python-dotenv glues onto the first key name ("\ufeffOPENAI_ENDPOINT").
+        # Strip it so the first key in the file is never reported as missing.
+        values.update({
+            k.lstrip("\ufeff"): v
+            for k, v in dotenv_values(env_path).items()
+            if v is not None
+        })
     for key in ALL_KEYS:
         if os.environ.get(key):
             values[key] = os.environ[key]

@@ -35,7 +35,7 @@ This lab can be completed end to end **or one task at a time**. Two things make 
   (shared setup) plus `A1`–`A3` (one page per task). Each task page tells a standalone learner
   exactly what it needs and how to fast-forward.
 - **Setup script** in `Labfiles/A-analyze-visual-content-with-ai/setup/`:
-  - `check_env.py --task N` — preflight-checks that `.env` has the keys task *N* needs.
+  - `check_env.py` — run it from the starter `Python/` folder as `python ../setup/check_env.py --task N` to preflight-check that `.env` has the keys task *N* needs.
 
 The script runs from the starter `Python/` folder and reads the shared `Python/.env`.
 

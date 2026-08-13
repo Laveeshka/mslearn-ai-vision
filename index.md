@@ -14,7 +14,7 @@ The following exercises are designed to provide you with a hands-on learning exp
 
 {% assign labs = site.pages | where_exp:"page", "page.url contains '/Instructions/Exercises'" %}
 {% for activity in labs  %}
-{% if activity.lab.title %}
+{% if activity.lab.title and activity.lab.status != 'draft' %}
 
 ### [{{ activity.lab.title }}]({{ site.github.url }}{{ activity.url }})
 

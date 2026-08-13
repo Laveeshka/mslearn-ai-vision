@@ -164,11 +164,11 @@ az login
 ## Check you're ready for a task
 
 Each task needs specific values in your `.env`. Before starting a task, run the preflight
-check from the `Labfiles/B-generate-images-and-video-with-ai` folder — it reads your `.env` and
+check from the `Python` folder — it reads your `.env` and
 tells you what (if anything) is missing:
 
 ```
-python setup/check_env.py --task 1
+python ../setup/check_env.py --task 1
 ```
 
 Swap `1` for the task number you're about to start. That's it — head to any task:

@@ -19,7 +19,7 @@ lab:
 > `Labfiles/B-generate-images-and-video-with-ai` folder, verify you're ready:
 
 ```
-python setup/check_env.py --task 3
+python ../setup/check_env.py --task 3
 ```
 
 > **Continuing from a previous task?** If you just finished Task 2 in the same `Python` folder, your

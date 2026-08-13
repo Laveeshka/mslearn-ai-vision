@@ -42,7 +42,7 @@ This lab can be completed end to end **or one task at a time**. Two things make 
 - **Setup script** in `Labfiles/B-generate-images-and-video-with-ai/setup/`:
   - `check_env.py --task N` — preflight-checks that `.env` has the keys task *N* needs.
 
-The script runs from the lab folder and reads the shared `Python/.env`.
+The script runs from the starter `Python/` folder and reads the shared `Python/.env`.
 
 ---
 
@@ -107,4 +107,4 @@ Tasks 2 and 3 take minutes, not seconds — 1 to 5 minutes per video, and Task 3
 
 ## Quick sanity checks that DON'T need Azure
 - `python -m py_compile <file>` — all solution files compile.
-- From `Python/`: `python ../setup/check_env.py --task 1` reports exactly which `.env` keys are still missing.
+- From the **starter** `Python/` folder (not `Solution/Python/`): `python ../setup/check_env.py --task 1` reports exactly which `.env` keys are still missing.

@@ -17,10 +17,10 @@ lab:
 > **storage account** and a Content Understanding **analyzer**. It does **not** need the chat model
 > deployment from Tasks 1 and 2, and it doesn't reuse any code from them — you can start here cold.
 > Once you've built your analyzer below, set `CONTENT_UNDERSTANDING_ENDPOINT` and `ANALYZER_ID` in
-> `Python/.env`, then verify from the `Labfiles/A-analyze-visual-content-with-ai` folder:
+> `Python/.env`, then verify from the `Python` folder:
 
 ```
-python setup/check_env.py --task 3
+python ../setup/check_env.py --task 3
 ```
 
 > **Continuing from a previous task?** If you just finished Task 1 or Task 2 in the same `Python`
@@ -158,10 +158,10 @@ Content Understanding needs somewhere to hold the content assets you analyze.
 
     Save the file.
 
-1. From the `Labfiles/A-analyze-visual-content-with-ai` folder, confirm you're ready:
+1. From the `Python` folder, confirm you're ready:
 
     ```
-    python setup/check_env.py --task 3
+    python ../setup/check_env.py --task 3
     ```
 
 ### Write code to analyze images and generate descriptions

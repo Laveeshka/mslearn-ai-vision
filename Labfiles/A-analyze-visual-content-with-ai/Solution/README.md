@@ -37,7 +37,7 @@ This lab can be completed end to end **or one task at a time**. Two things make 
 - **Setup script** in `Labfiles/A-analyze-visual-content-with-ai/setup/`:
   - `check_env.py --task N` — preflight-checks that `.env` has the keys task *N* needs.
 
-The script runs from the lab folder and reads the shared `Python/.env`.
+The script runs from the starter `Python/` folder and reads the shared `Python/.env`.
 
 ---
 
@@ -103,4 +103,4 @@ All commands run from the single `Python/` folder:
 
 ## Quick sanity checks that DON'T need Azure
 - `python -m py_compile <file>` — all solution files compile.
-- From `Python/`: `python ../setup/check_env.py --task 1` reports exactly which `.env` keys are still missing.
+- From the **starter** `Python/` folder (not `Solution/Python/`): `python ../setup/check_env.py --task 1` reports exactly which `.env` keys are still missing.

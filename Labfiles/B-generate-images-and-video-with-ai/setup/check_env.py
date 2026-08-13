@@ -2,9 +2,10 @@
 Preflight check for the Wide World Importers generative media lab.
 
 Each task in this lab can be completed on its own. Before you start a task,
-run this script to confirm your .env file has everything that task needs:
+run this script from the starter `Python` folder (the folder you opened in
+VS Code) to confirm your .env file has everything that task needs:
 
-    python setup/check_env.py --task 1
+    python ../setup/check_env.py --task 1
 
 It never changes anything - it only reads your .env and tells you what (if
 anything) is missing, so you can fix it before running the task.

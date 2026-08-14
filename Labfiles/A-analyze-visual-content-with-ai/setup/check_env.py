@@ -33,8 +33,15 @@ def _parse_env_text(text):
     does, the settings in between are swallowed into that value and lost.
     This parser reproduces that behaviour exactly: reporting a tidier result
     than the runtime would be a false positive.
+
+    Escape handling is asymmetric, and measured against python-dotenv rather
+    than assumed: double quotes decode the full set, single quotes decode only
+    the delimiter and the backslash itself, and everything else stays literal.
+    The close-quote SEARCH honors escapes for both styles.
     """
-    escapes = {"n": "\n", "r": "\r", "t": "\t", '"': '"', "'": "'", "\\": "\\"}
+    double_escapes = {"n": "\n", "r": "\r", "t": "\t",
+                      '"': '"', "'": "'", "\\": "\\"}
+    single_escapes = {"'": "'", "\\": "\\"}
     values = {}
     problems = []
     position = 0
@@ -73,6 +80,7 @@ def _parse_env_text(text):
 
         if cursor < length and text[cursor] in "'\"":
             quote = text[cursor]
+            decoder = double_escapes if quote == '"' else single_escapes
             cursor += 1
             value_start = cursor
             chars = []
@@ -82,19 +90,10 @@ def _parse_env_text(text):
                 char = text[cursor]
                 if char == "\\" and cursor + 1 < length:
                     # A backslash escape hides the next character from the
-                    # close-quote search for BOTH quote styles. Note the
-                    # asymmetry with value content: only double quotes UNESCAPE
-                    # it - inside single quotes the pair stays literal.
+                    # close-quote search for BOTH quote styles; the per-quote
+                    # decoder above controls which pairs are actually decoded.
                     following = text[cursor + 1]
-                    if quote == '"':
-                        chars.append(escapes.get(following, "\\" + following))
-                    elif following == quote:
-                        # Inside single quotes only the delimiter itself is
-                        # unescaped; every other backslash pair stays literal.
-                        chars.append(following)
-                    else:
-                        chars.append(char)
-                        chars.append(following)
+                    chars.append(decoder.get(following, "\\" + following))
                     cursor += 2
                     continue
                 if char == quote:

@@ -21,69 +21,128 @@ import argparse
 import os
 from pathlib import Path
 
+def _parse_env_text(text):
+    """Parse .env text the way python-dotenv does, reporting problems.
+
+    Returns (values, problems). `problems` holds human-readable strings for
+    conditions that break the learner's app even though the file "looks" fine.
+
+    The important subtlety is quoting. A quoted value may run past the end of
+    its line. python-dotenv discards the malformed statement and then resumes:
+    if no later line closes the quote it drops only that setting, but if one
+    does, the settings in between are swallowed into that value and lost.
+    This parser reproduces that behaviour exactly: reporting a tidier result
+    than the runtime would be a false positive.
+    """
+    escapes = {"n": "\n", "r": "\r", "t": "\t", '"': '"', "'": "'", "\\": "\\"}
+    values = {}
+    problems = []
+    position = 0
+    line_number = 1
+    length = len(text)
+
+    while position < length:
+        end_of_line = text.find("\n", position)
+        if end_of_line == -1:
+            end_of_line = length
+        statement_line = line_number
+        stripped = text[position:end_of_line].strip()
+
+        if not stripped or stripped.startswith("#"):
+            position = end_of_line + 1
+            line_number += 1
+            continue
+
+        offset = 0
+        if stripped.startswith("export "):
+            offset = text.index("export ", position) - position + len("export ")
+
+        equals = text.find("=", position + offset, end_of_line)
+        if equals == -1:
+            # python-dotenv records a bare key with no "=" as None.
+            values[stripped] = None
+            position = end_of_line + 1
+            line_number += 1
+            continue
+
+        key = text[position + offset:equals].strip()
+        cursor = equals + 1
+        while cursor < end_of_line and text[cursor] in " \t":
+            cursor += 1
+
+        if cursor < length and text[cursor] in "'\"":
+            quote = text[cursor]
+            cursor += 1
+            chars = []
+            closed = False
+            spanned_lines = False
+            while cursor < length:
+                char = text[cursor]
+                if char == "\\" and quote == '"' and cursor + 1 < length:
+                    following = text[cursor + 1]
+                    chars.append(escapes.get(following, "\\" + following))
+                    cursor += 2
+                    continue
+                if char == quote:
+                    closed = True
+                    cursor += 1
+                    break
+                if char == "\n":
+                    spanned_lines = True
+                    line_number += 1
+                chars.append(char)
+                cursor += 1
+
+            if not closed:
+                # python-dotenv cannot parse this statement, drops it, and
+                # resumes at the next line - it only swallows following lines
+                # when a matching quote actually appears later in the file.
+                problems.append(
+                    "line {0}: unterminated quote ({1})".format(
+                        statement_line, key)
+                )
+                position = end_of_line + 1
+                line_number = statement_line + 1
+                continue
+
+            rest_end = text.find("\n", cursor)
+            if rest_end == -1:
+                rest_end = length
+            trailing = text[cursor:rest_end].strip()
+            if spanned_lines:
+                problems.append(
+                    "line {0}: unterminated quote ({1})".format(
+                        statement_line, key)
+                )
+            if trailing and not trailing.startswith("#"):
+                # python-dotenv cannot parse the statement and drops it.
+                pass
+            else:
+                values[key] = "".join(chars)
+            position = rest_end + 1
+            line_number += 1
+        else:
+            raw = text[cursor:end_of_line]
+            values[key] = raw.split(" #")[0].strip()
+            position = end_of_line + 1
+            line_number += 1
+
+    return values, problems
+
+
 def _parse_env_file(path):
     """Minimal stand-in for python-dotenv's dotenv_values().
 
     Kept at module level (rather than hidden inside the ImportError branch) so it
     can be imported and differential-tested directly against python-dotenv.
     """
-    values = {}
     try:
         # utf-8-sig transparently strips a UTF-8 BOM if the editor added one.
-        handle = open(path, "r", encoding="utf-8-sig")
+        with open(path, "r", encoding="utf-8-sig", newline="") as handle:
+            text = handle.read()
     except OSError:
-        return values
-    with handle:
-        for raw_line in handle:
-            line = raw_line.strip()
-            if not line or line.startswith("#"):
-                continue
-            if line.startswith("export "):
-                line = line[len("export "):].lstrip()
-            key, separator, value = line.partition("=")
-            key = key.strip()
-            if not separator:
-                # python-dotenv records a bare key with no "=" as None.
-                values[key] = None
-                continue
-            value = value.strip()
-            if value[:1] in ("'", '"'):
-                quote = value[0]
-                body = value[1:]
-                if quote == '"':
-                    # Double quotes honor backslash escapes, so scan character by
-                    # character: an escaped quote does not close the value.
-                    chars = []
-                    index = 0
-                    closed = False
-                    escapes = {"n": "\n", "r": "\r", "t": "\t",
-                               '"': '"', "'": "'", "\\": "\\"}
-                    while index < len(body):
-                        char = body[index]
-                        if char == "\\" and index + 1 < len(body):
-                            following = body[index + 1]
-                            chars.append(escapes.get(following, "\\" + following))
-                            index += 2
-                            continue
-                        if char == quote:
-                            closed = True
-                            break
-                        chars.append(char)
-                        index += 1
-                    if not closed:
-                        # python-dotenv discards an entry it cannot parse.
-                        continue
-                    value = "".join(chars)
-                else:
-                    # Single quotes are literal - no escape processing.
-                    closing = body.find(quote)
-                    if closing == -1:
-                        continue
-                    value = body[:closing]
-            else:
-                # Unquoted: a " #" begins a trailing comment.
-                value = value.split(" #")[0].strip()
-            values[key] = value
+        return {}
+    values, _ = _parse_env_text(text)
     return values
 
 
@@ -140,6 +199,37 @@ FIX_HINTS = {
 }
 
 
+def _env_quote_problems(path):
+    """Quote problems in the .env, detected independently of which parser is used.
+
+    Runs the stdlib scanner even when python-dotenv is available, so the
+    diagnosis is identical on both code paths.
+    """
+    try:
+        with open(path, "r", encoding="utf-8-sig", newline="") as handle:
+            text = handle.read()
+    except OSError:
+        return []
+    _, problems = _parse_env_text(text)
+    return problems
+
+
+def _file_has_bom(path):
+    """True if the .env begins with a UTF-8 BOM.
+
+    This matters because a BOM becomes part of the FIRST setting's name:
+    python-dotenv reads it as "\ufeffOPENAI_ENDPOINT", so the app's
+    os.getenv("OPENAI_ENDPOINT") returns None even though the file looks
+    correct. A BOM'd .env genuinely does not work, so this must be reported
+    to the learner - never silently normalized away.
+    """
+    try:
+        with open(path, "rb") as handle:
+            return handle.read(3) == b"\xef\xbb\xbf"
+    except OSError:
+        return False
+
+
 def find_env_file():
     """Return the .env next to the lab's Python folder, wherever this is run from."""
     here = Path(__file__).resolve().parent
@@ -161,7 +251,9 @@ def load_values(env_path):
     if env_path.exists():
         # A .env saved by some Windows editors starts with a UTF-8 BOM, which
         # python-dotenv glues onto the first key name ("\ufeffOPENAI_ENDPOINT").
-        # Strip it so the first key in the file is never reported as missing.
+        # Strip it here ONLY so the key list reads sensibly and both parser paths
+        # agree. This is NOT a fix: a BOM'd .env genuinely breaks the app, so
+        # _file_has_bom() reports it separately and main() still exits non-zero.
         values.update({
             k.lstrip("\ufeff"): v
             for k, v in dotenv_values(env_path).items()
@@ -201,20 +293,47 @@ def main():
     print()
 
     missing = [key for key in required if not is_set(values, key)]
+    has_bom = env_path.exists() and _file_has_bom(env_path)
+    quote_problems = _env_quote_problems(env_path) if env_path.exists() else []
 
     for key in required:
         mark = "OK " if is_set(values, key) else "MISSING"
         print(f"  [{mark}] {key}")
 
-    if not missing:
+    if has_bom:
+        print("  [PROBLEM] .env starts with a UTF-8 BOM")
+    for problem in quote_problems:
+        print(f"  [PROBLEM] .env {problem}")
+
+    if not missing and not has_bom and not quote_problems:
         print()
         print(f"You're ready to start Task {args.task}.")
         return 0
 
     print()
-    print("Set the following before starting this task:")
+    print("Fix the following before starting this task:")
     for key in missing:
         print(f"\n  {key}\n    {FIX_HINTS.get(key, 'Add this key to your .env file.')}")
+
+    if has_bom:
+        print()
+        print("  .env encoding")
+        print("    Your .env was saved as 'UTF-8 with BOM' (Notepad does this by")
+        print("    default). The BOM becomes part of the first setting's name, so the")
+        print("    app reads that setting as empty even though the file looks correct.")
+        print("    Re-save as plain UTF-8: in VS Code, click the encoding indicator in")
+        print("    the status bar, choose 'Save with Encoding', then 'UTF-8'")
+        print("    (NOT 'UTF-8 with BOM').")
+
+    if quote_problems:
+        print()
+        print("  .env quoting")
+        print("    The line listed above opens a quote that is never closed, so that")
+        print("    setting is dropped - and depending on where the next quote appears,")
+        print("    the settings after it can be swallowed into that value and dropped")
+        print("    too. That is why a setting can look correct in the file and still")
+        print("    read as empty. Close the quote on that line.")
+
     return 1
 
 

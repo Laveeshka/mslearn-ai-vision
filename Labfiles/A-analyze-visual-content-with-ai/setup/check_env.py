@@ -21,41 +21,52 @@ import argparse
 import os
 from pathlib import Path
 
+def _parse_env_file(path):
+    """Minimal stand-in for python-dotenv's dotenv_values().
+
+    Kept at module level (rather than hidden inside the ImportError branch) so it
+    can be imported and differential-tested directly against python-dotenv.
+    """
+    values = {}
+    try:
+        # utf-8-sig transparently strips a UTF-8 BOM if the editor added one.
+        handle = open(path, "r", encoding="utf-8-sig")
+    except OSError:
+        return values
+    with handle:
+        for raw_line in handle:
+            line = raw_line.strip()
+            if not line or line.startswith("#"):
+                continue
+            if line.startswith("export "):
+                line = line[len("export "):].lstrip()
+            key, separator, value = line.partition("=")
+            key = key.strip()
+            if not separator:
+                # python-dotenv records a bare key with no "=" as None.
+                values[key] = None
+                continue
+            value = value.strip()
+            if value[:1] in ("'", '"'):
+                # Quoted: take everything up to the closing quote, so a "#"
+                # inside the quotes is kept and a trailing comment is dropped.
+                quote = value[0]
+                closing = value.find(quote, 1)
+                value = value[1:] if closing == -1 else value[1:closing]
+            else:
+                # Unquoted: a " #" begins a trailing comment.
+                value = value.split(" #")[0].strip()
+            values[key] = value
+    return values
+
+
 try:
     from dotenv import dotenv_values
 except ModuleNotFoundError:
     # python-dotenv is installed into the lab's virtual environment, but this
     # preflight check is meant to run BEFORE 'pip install -r requirements.txt'
-    # (and possibly outside the venv). Fall back to a small stdlib parser so the
-    # check still works on a clean interpreter.
-    def dotenv_values(path):
-        """Minimal .env reader: KEY=VALUE, honoring quotes and # comments."""
-        values = {}
-        try:
-            # utf-8-sig transparently strips a UTF-8 BOM if the editor added one.
-            env_file = open(path, "r", encoding="utf-8-sig")
-        except OSError:
-            return values
-        with env_file:
-            for raw_line in env_file:
-                line = raw_line.strip()
-                if not line or line.startswith("#"):
-                    continue
-                if line.startswith("export "):
-                    line = line[len("export "):].lstrip()
-                key, separator, value = line.partition("=")
-                if not separator:
-                    # python-dotenv records a bare key with no "=" as None.
-                    values[line] = None
-                    continue
-                key = key.strip()
-                value = value.strip()
-                if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
-                    value = value[1:-1]
-                else:
-                    value = value.split(" #")[0].strip()
-                values[key] = value
-        return values
+    # (and possibly outside the venv), so fall back to the stdlib parser above.
+    dotenv_values = _parse_env_file
 
 # Which .env keys each task needs to run on its own.
 TASK_REQUIREMENTS = {

@@ -39,7 +39,8 @@ def _parse_env_text(text):
     the delimiter and the backslash itself, and everything else stays literal.
     The close-quote SEARCH honors escapes for both styles.
     """
-    double_escapes = {"n": "\n", "r": "\r", "t": "\t",
+    double_escapes = {"a": "\a", "b": "\b", "f": "\f", "v": "\v",
+                      "n": "\n", "r": "\r", "t": "\t",
                       '"': '"', "'": "'", "\\": "\\"}
     single_escapes = {"'": "'", "\\": "\\"}
     values = {}
@@ -280,11 +281,14 @@ def load_values(env_path):
     """Merge real environment variables over .env file values (env wins)."""
     values = {}
     if env_path.exists():
+        # INTENTIONAL DIVERGENCE - do not "fix" this to match python-dotenv.
         # A .env saved by some Windows editors starts with a UTF-8 BOM, which
         # python-dotenv glues onto the first key name ("\ufeffOPENAI_ENDPOINT").
-        # Strip it here ONLY so the key list reads sensibly and both parser paths
-        # agree. This is NOT a fix: a BOM'd .env genuinely breaks the app, so
-        # _file_has_bom() reports it separately and main() still exits non-zero.
+        # Stripping it here is what makes the key list readable and makes both
+        # parser paths agree. A parity check WILL flag this as a difference;
+        # removing it does not improve correctness, it just hides the problem.
+        # Safety comes from _file_has_bom() reporting the BOM and main()
+        # exiting non-zero, not from matching the library here.
         values.update({
             k.lstrip("\ufeff"): v
             for k, v in dotenv_values(env_path).items()
@@ -296,10 +300,33 @@ def load_values(env_path):
     return values
 
 
-def is_set(values, key):
+def _example_placeholders(env_path):
+    """Values shipped in .env.example are placeholders by definition.
+
+    Reading them at runtime means this check cannot rot the way an exact-match
+    list does: if .env.example is edited, its new values are still recognised
+    as unedited. PLACEHOLDERS below stays as a fallback for values that were
+    never in the example file.
+
+    CONSTRAINT: this assumes .env.example ships only placeholders, which is true
+    for these labs. If you ever pre-fill a REAL value there (an API version, a
+    fixed model name), it would be treated as unedited and reported MISSING -
+    exclude it here rather than deleting this function. The durable check is the
+    behavioural one: copying .env.example to .env unedited must report not-ready.
+    """
+    example = Path(env_path).parent / ".env.example"
+    return {
+        value.strip()
+        for value in _parse_env_file(str(example)).values()
+        if value and value.strip()
+    }
+
+
+def is_set(values, key, extra_placeholders=None):
     """A key counts as set if it's present and not a leftover placeholder."""
     value = (values.get(key) or "").strip()
-    return bool(value) and value not in PLACEHOLDERS
+    known = PLACEHOLDERS if not extra_placeholders else PLACEHOLDERS | extra_placeholders
+    return bool(value) and value not in known
 
 
 def main():
@@ -323,12 +350,14 @@ def main():
     print(f"Reading: {env_path}{'' if env_path.exists() else '  (not found yet)'}")
     print()
 
-    missing = [key for key in required if not is_set(values, key)]
+    example_placeholders = _example_placeholders(env_path)
+    missing = [key for key in required
+               if not is_set(values, key, example_placeholders)]
     has_bom = env_path.exists() and _file_has_bom(env_path)
     quote_problems = _env_quote_problems(env_path) if env_path.exists() else []
 
     for key in required:
-        mark = "OK " if is_set(values, key) else "MISSING"
+        mark = "OK " if is_set(values, key, example_placeholders) else "MISSING"
         print(f"  [{mark}] {key}")
 
     if has_bom:

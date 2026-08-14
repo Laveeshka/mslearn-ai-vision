@@ -193,6 +193,8 @@ ALL_KEYS = [
 ]
 
 # Placeholder text shipped in .env.example - present but not yet filled in.
+# NOTE: .env.example values are also read at runtime (see _example_placeholders),
+# so this list is a fallback, not the source of truth.
 PLACEHOLDERS = {
     "",
     "your_image_model_deployment",
@@ -201,6 +203,12 @@ PLACEHOLDERS = {
     "<your-openai-endpoint>",
     "<your-model-deployment-name>",
 }
+
+# Keys whose .env.example value is a REAL default the learner should KEEP.
+# Anything not listed here is treated as unedited template text, so add a key
+# here the moment you pre-fill a working value in .env.example - otherwise a
+# correctly-configured learner is told it is MISSING.
+EXAMPLE_REAL_DEFAULTS = set()
 
 # How to fix each key, shown only when it's missing.
 FIX_HINTS = {
@@ -300,25 +308,44 @@ def _example_placeholders(env_path):
     as unedited. PLACEHOLDERS below stays as a fallback for values that were
     never in the example file.
 
-    CONSTRAINT: this assumes .env.example ships only placeholders, which is true
-    for these labs. If you ever pre-fill a REAL value there (an API version, a
-    fixed model name), it would be treated as unedited and reported MISSING -
-    exclude it here rather than deleting this function. The durable check is the
-    behavioural one: copying .env.example to .env unedited must report not-ready.
+    CONSTRAINT: values for keys listed in EXAMPLE_REAL_DEFAULTS are skipped,
+    because those are real defaults a learner is meant to keep. Unioning them
+    blindly would report a correctly-configured learner as MISSING - trading a
+    false positive for a false negative that blocks someone who is ready.
     """
     example = Path(env_path).parent / ".env.example"
     return {
         value.strip()
-        for value in _parse_env_file(str(example)).values()
-        if value and value.strip()
+        for key, value in _parse_env_file(str(example)).items()
+        if value and value.strip() and key not in EXAMPLE_REAL_DEFAULTS
     }
+
+
+def _is_endpoint_key(key):
+    """Endpoint settings are always URLs, whatever the template text says."""
+    return key.endswith("_ENDPOINT") or key.endswith("_URL")
+
+
+def _looks_like_url(value):
+    """Cheap shape test - enough to reject template text and wrong pastes."""
+    value = value.strip()
+    return (value.startswith("https://") or value.startswith("http://")) \
+        and "." in value and " " not in value
 
 
 def is_set(values, key, extra_placeholders=None):
     """A key counts as set if it's present and not a leftover placeholder."""
     value = (values.get(key) or "").strip()
+    if not value:
+        return False
     known = PLACEHOLDERS if not extra_placeholders else PLACEHOLDERS | extra_placeholders
-    return bool(value) and value not in known
+    if value in known:
+        return False
+    # An endpoint that isn't URL-shaped is template text or a wrong paste,
+    # however it happens to be worded - this catches rot to a novel token.
+    if _is_endpoint_key(key) and not _looks_like_url(value):
+        return False
+    return True
 
 
 def main():

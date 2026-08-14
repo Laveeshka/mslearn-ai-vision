@@ -48,11 +48,38 @@ def _parse_env_file(path):
                 continue
             value = value.strip()
             if value[:1] in ("'", '"'):
-                # Quoted: take everything up to the closing quote, so a "#"
-                # inside the quotes is kept and a trailing comment is dropped.
                 quote = value[0]
-                closing = value.find(quote, 1)
-                value = value[1:] if closing == -1 else value[1:closing]
+                body = value[1:]
+                if quote == '"':
+                    # Double quotes honor backslash escapes, so scan character by
+                    # character: an escaped quote does not close the value.
+                    chars = []
+                    index = 0
+                    closed = False
+                    escapes = {"n": "\n", "r": "\r", "t": "\t",
+                               '"': '"', "'": "'", "\\": "\\"}
+                    while index < len(body):
+                        char = body[index]
+                        if char == "\\" and index + 1 < len(body):
+                            following = body[index + 1]
+                            chars.append(escapes.get(following, "\\" + following))
+                            index += 2
+                            continue
+                        if char == quote:
+                            closed = True
+                            break
+                        chars.append(char)
+                        index += 1
+                    if not closed:
+                        # python-dotenv discards an entry it cannot parse.
+                        continue
+                    value = "".join(chars)
+                else:
+                    # Single quotes are literal - no escape processing.
+                    closing = body.find(quote)
+                    if closing == -1:
+                        continue
+                    value = body[:closing]
             else:
                 # Unquoted: a " #" begins a trailing comment.
                 value = value.split(" #")[0].strip()

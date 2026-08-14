@@ -46,6 +46,7 @@ def _parse_env_text(text):
         if end_of_line == -1:
             end_of_line = length
         statement_line = line_number
+        statement_start = position
         stripped = text[position:end_of_line].strip()
 
         if not stripped or stripped.startswith("#"):
@@ -73,6 +74,7 @@ def _parse_env_text(text):
         if cursor < length and text[cursor] in "'\"":
             quote = text[cursor]
             cursor += 1
+            value_start = cursor
             chars = []
             closed = False
             spanned_lines = False
@@ -94,15 +96,25 @@ def _parse_env_text(text):
                 cursor += 1
 
             if not closed:
-                # python-dotenv cannot parse this statement, drops it, and
-                # resumes at the next line - it only swallows following lines
-                # when a matching quote actually appears later in the file.
+                # python-dotenv is escape-aware while a value PARSES, but raw
+                # while RECOVERING from a quote that never closes: an escaped
+                # quote on a later line still ends the broken statement. So if
+                # the escape-aware scan found no close anywhere, retry raw.
                 problems.append(
                     "line {0}: unterminated quote ({1})".format(
                         statement_line, key)
                 )
-                position = end_of_line + 1
-                line_number = statement_line + 1
+                raw_close = text.find(quote, value_start)
+                if raw_close == -1:
+                    # Nothing closes it at all: drop this statement only.
+                    position = end_of_line + 1
+                else:
+                    # Everything up to that raw quote is swallowed into the
+                    # broken statement; resume on the following line.
+                    after = text.find("\n", raw_close)
+                    position = length if after == -1 else after + 1
+                line_number = statement_line + text.count(
+                    "\n", statement_start, position)
                 continue
 
             rest_end = text.find("\n", cursor)

@@ -327,25 +327,48 @@ def _is_endpoint_key(key):
 
 
 def _looks_like_url(value):
-    """Cheap shape test - enough to reject template text and wrong pastes."""
+    """Cheap shape test - enough to reject template text and wrong pastes.
+
+    Deliberately permissive about the host so a local proxy such as
+    http://localhost:8080 still passes.
+    """
     value = value.strip()
-    return (value.startswith("https://") or value.startswith("http://")) \
-        and "." in value and " " not in value
+    if " " in value:
+        return False
+    for scheme in ("https://", "http://"):
+        if value.startswith(scheme):
+            return len(value) > len(scheme)
+    return False
+
+
+def _wrong_shape(key, value):
+    """Why a filled-in value is the wrong KIND of value, or None if it's fine.
+
+    Shape rules beat keyword lists: template wording is unbounded
+    (ENDPOINT_GOES_HERE, __ENDPOINT__, FILL_IN_ENDPOINT ...) but the shape of a
+    setting is fixed. This also catches the mistake a keyword list never can -
+    a real value pasted into the wrong setting.
+    """
+    if _is_endpoint_key(key):
+        if not _looks_like_url(value):
+            return ("This doesn't look like an endpoint - it must start with "
+                    "https:// . Check you haven't pasted a resource name or a "
+                    "model deployment name here.")
+    elif _looks_like_url(value):
+        return ("This should be a bare name, not a URL. Check you haven't "
+                "pasted an endpoint here.")
+    return None
 
 
 def is_set(values, key, extra_placeholders=None):
-    """A key counts as set if it's present and not a leftover placeholder."""
+    """A key counts as set if it's present, not a placeholder, and right-shaped."""
     value = (values.get(key) or "").strip()
     if not value:
         return False
     known = PLACEHOLDERS if not extra_placeholders else PLACEHOLDERS | extra_placeholders
     if value in known:
         return False
-    # An endpoint that isn't URL-shaped is template text or a wrong paste,
-    # however it happens to be worded - this catches rot to a novel token.
-    if _is_endpoint_key(key) and not _looks_like_url(value):
-        return False
-    return True
+    return _wrong_shape(key, value) is None
 
 
 def main():
@@ -376,7 +399,14 @@ def main():
     quote_problems = _env_quote_problems(env_path) if env_path.exists() else []
 
     for key in required:
-        mark = "OK " if is_set(values, key, example_placeholders) else "MISSING"
+        if is_set(values, key, example_placeholders):
+            mark = "OK "
+        elif _wrong_shape(key, (values.get(key) or "").strip()) and \
+                (values.get(key) or "").strip() not in \
+                (PLACEHOLDERS | example_placeholders):
+            mark = "WRONG"
+        else:
+            mark = "MISSING"
         print(f"  [{mark}] {key}")
 
     if has_bom:
@@ -392,7 +422,12 @@ def main():
     print()
     print("Fix the following before starting this task:")
     for key in missing:
-        print(f"\n  {key}\n    {FIX_HINTS.get(key, 'Add this key to your .env file.')}")
+        reason = _wrong_shape(key, (values.get(key) or "").strip())
+        if reason and (values.get(key) or "").strip() not in \
+                (PLACEHOLDERS | example_placeholders):
+            print(f"\n  {key}\n    {reason}")
+        else:
+            print(f"\n  {key}\n    {FIX_HINTS.get(key, 'Add this key to your .env file.')}")
 
     if has_bom:
         print()

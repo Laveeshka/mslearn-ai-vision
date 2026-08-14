@@ -80,9 +80,21 @@ def _parse_env_text(text):
             spanned_lines = False
             while cursor < length:
                 char = text[cursor]
-                if char == "\\" and quote == '"' and cursor + 1 < length:
+                if char == "\\" and cursor + 1 < length:
+                    # A backslash escape hides the next character from the
+                    # close-quote search for BOTH quote styles. Note the
+                    # asymmetry with value content: only double quotes UNESCAPE
+                    # it - inside single quotes the pair stays literal.
                     following = text[cursor + 1]
-                    chars.append(escapes.get(following, "\\" + following))
+                    if quote == '"':
+                        chars.append(escapes.get(following, "\\" + following))
+                    elif following == quote:
+                        # Inside single quotes only the delimiter itself is
+                        # unescaped; every other backslash pair stays literal.
+                        chars.append(following)
+                    else:
+                        chars.append(char)
+                        chars.append(following)
                     cursor += 2
                     continue
                 if char == quote:
